@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 // 회사 이메일 도메인. 예: "company.com" 처럼 입력하면 해당 도메인만 허용됩니다.
 // 비워두면(빈 문자열) 개인 메일(gmail, naver 등)만 막고 나머지 도메인은 허용합니다.
@@ -145,6 +146,8 @@ export default function RegistrationForm() {
   const [values, setValues] = useState<FormValues>(initialValues);
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const setField = (field: keyof FormValues) => (value: string) => {
     setValues((prev) => ({ ...prev, [field]: value }));
@@ -153,13 +156,42 @@ export default function RegistrationForm() {
     }
   };
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setSubmitError(null);
     const nextErrors = validate(values);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
-    // TODO: 나중에 Supabase 연결 시 여기서 데이터를 저장합니다.
+    if (!isSupabaseConfigured || !supabase) {
+      setSubmitError(
+        "아직 Supabase 연결 정보가 입력되지 않았습니다. .env.local 파일을 확인해주세요."
+      );
+      return;
+    }
+
+    setSubmitting(true);
+    const { error } = await supabase.from("registrations").insert({
+      name: values.name.trim(),
+      email: values.email.trim().toLowerCase(),
+      team: values.team,
+      position: values.position,
+      ai_experience: values.aiExperience,
+      interest: values.interest,
+      dietary: values.dietary.trim() || null,
+    });
+    setSubmitting(false);
+
+    if (error) {
+      // 23505 = 이미 같은 이메일로 신청한 경우
+      if (error.code === "23505") {
+        setErrors({ email: "이미 신청된 이메일입니다." });
+      } else {
+        setSubmitError("신청 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.");
+      }
+      return;
+    }
+
     setSubmitted(true);
   };
 
@@ -280,11 +312,18 @@ export default function RegistrationForm() {
         />
       </div>
 
+      {submitError && (
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {submitError}
+        </p>
+      )}
+
       <button
         type="submit"
-        className="w-full rounded-xl bg-indigo-600 px-6 py-3.5 text-base font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
+        disabled={submitting}
+        className="w-full rounded-xl bg-indigo-600 px-6 py-3.5 text-base font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        신청하기
+        {submitting ? "신청 중..." : "신청하기"}
       </button>
     </form>
   );
